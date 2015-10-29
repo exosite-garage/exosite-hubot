@@ -71,6 +71,7 @@ module.exports = (robot) ->
   ensureConfig console.log
 
   robot.respond /ddx start (.+)/i, (msg) ->
+    console.log msg
     ensureConfig msg.send
     problem_desc = msg.match[1]
 
