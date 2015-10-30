@@ -34,16 +34,13 @@ class ScoreKeeper
   saveUser: (user, from, room, reason) ->
     @saveScoreLog(user, from, room, reason)
     @robot.brain.save()
-    console.log "x-charlie", typeof @storage.scores[user]
 
     [@storage.scores[user], @storage.reasons[user][reason] || "none"]
 
   add: (user, from, room, reason) ->
     if @validate(user, from)
       user = @getUser(user)
-      console.log "x-alpha", typeof @storage.scores[user]
       @storage.scores[user]++
-      console.log "x-bravo", typeof @storage.scores[user]
       @storage.reasons[user] ||= {}
 
       if reason

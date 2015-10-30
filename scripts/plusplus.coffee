@@ -75,7 +75,6 @@ module.exports = (robot) ->
                   if reasonScore == 1 or reasonScore == -1
                     "#{name} has #{score} points, #{reasonScore} of which is for #{reason}."
                   else
-                    console.log typeof reasonScore
                     "#{name} has #{score} points, #{reasonScore} of which are for #{reason}."
                 else
                   if score == 1
