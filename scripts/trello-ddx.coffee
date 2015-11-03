@@ -38,6 +38,12 @@ ensureConfig = (out) ->
 # API Methods
 ##############################
 
+# brainKey returns a key under which to store brain data for this session
+#
+# `msg` should be a Response object (as passed to a robot.respond() callback)
+brainKey = (msg) ->
+  return "ddx_#{msg.envelope.room}"
+
 # startBoard creates a new DDx board and links to it in the chatroom topic
 startBoard = (msg, problemDesc) ->
   msg.send "Starting DDx for issue '#{problemDesc}'..."
@@ -84,11 +90,10 @@ startBoard = (msg, problemDesc) ->
         closeFailureCb = (err, data) ->
           console.log "Error closing list: #{err}"
           msg.reply "Error closing list: #{err}"
-        console.log JSON.stringify board
         for list in lists
           closeList(list.id, closeFailureCb)
 
-        # 5. Add  DDx lists to board
+        # 5. Add DDx lists to board
         createList = (boardId, listName, listPos, failure, success) ->
           trello.post "/1/board/#{boardId}/lists", {
             name: listName,
@@ -104,6 +109,17 @@ startBoard = (msg, problemDesc) ->
         createList board.id, "Symptoms", "bottom", createFailureCb, (err, data) ->
           createList board.id, "Hypotheses", "bottom", createFailureCb, (err, data) ->
             createList board.id, "Tests", "bottom", createFailureCb, (err, data) ->
+              # 6. Write board ID and list IDs to brain
+              brainEntry = {}
+              brainEntry[brainKey(msg)] = {
+                boardId: board.id,
+                listIds: list.id for list in lists
+              }
+              msg.robot.brain.set brainKey(msg), brainEntry
+              msg.robot.brain.save
+              console.log "herp shmerp: " + JSON.stringify(msg.robot.brain.get(brainKey(msg)))
+
+              # 7. Report success
               msg.reply "Created DDx board: #{board.shortUrl}"
               msg.topic "[#{board.shortUrl}] #{problemDesc}"
 
@@ -130,7 +146,6 @@ module.exports = (robot) ->
   ensureConfig console.log
 
   robot.respond /ddx start (.+)/i, (msg) ->
-    console.log msg
     ensureConfig msg.send
     problemDesc = msg.match[1]
     return unless ensureConfig()
