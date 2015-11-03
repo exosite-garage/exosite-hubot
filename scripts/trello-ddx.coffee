@@ -38,16 +38,75 @@ ensureConfig = (out) ->
 # API Methods
 ##############################
 
-startBoard = (msg, problem_desc) ->
-  msg.reply "Starting DDx..."
+# startBoard creates a new DDx board and links to it in the chatroom topic
+startBoard = (msg, problemDesc) ->
+  msg.send "Starting DDx for issue '#{problemDesc}'..."
   ensureConfig msg.send
-  boardName = "DDx: " + problem_desc
+  boardName = "DDx: " + problemDesc
+  board = null
+
+  # 1. Create board
   trello.post "/1/boards", {
     name: boardName,
     idOrganization: process.env.HUBOT_DDX_ORGID,
-    prefs_permission_level: "org",
+    prefs_permissionLevel: "org",
     prefs_comments: "org"
-  }
+  }, (err, data) ->
+    if err
+      console.log "Error creating DDx board: #{err}"
+      msg.reply "Error creating DDx board: #{err}"
+      return
+
+    # 2. Add organization as board admin
+    board = data
+    trello.post "/1/board/#{board.id}/members/#{board.idOrganization}", {
+      type: "admin"
+    }, (err, data) ->
+      if err
+        console.log "Error making DDx board writable by the organization: #{err}"
+        msg.reply "Error making DDx board writable by the organization: #{err}"
+        return
+
+      # 3. Retrieve initial list IDs
+      trello.get "/1/boards/#{board.id}/lists", {}, (err, data) ->
+        if err
+          console.log "Error retreiving board's initial lists: #{err}"
+          msg.reply "Error retreiving board's initial lists: #{err}"
+          return
+
+        # 4. Remove initial lists
+        lists = data
+        closeList = (listId, failure) ->
+          trello.put "/1/lists/#{listId}/closed", {
+            value: true
+          }, (err, data) ->
+            failure(err, data) if err
+        closeFailureCb = (err, data) ->
+          console.log "Error closing list: #{err}"
+          msg.reply "Error closing list: #{err}"
+        console.log JSON.stringify board
+        for list in lists
+          closeList(list.id, closeFailureCb)
+
+        # 5. Add  DDx lists to board
+        createList = (boardId, listName, listPos, failure, success) ->
+          trello.post "/1/board/#{boardId}/lists", {
+            name: listName,
+            pos: listPos
+          }, (err, data) ->
+            if err
+              failure(err, data)
+            else
+              success(err, data)
+        createFailureCb = (err, data) ->
+          console.log "Error creating list: #{err}"
+          msg.reply "Error creating list: #{err}"
+        createList board.id, "Symptoms", "bottom", createFailureCb, (err, data) ->
+          createList board.id, "Hypotheses", "bottom", createFailureCb, (err, data) ->
+            createList board.id, "Tests", "bottom", createFailureCb, (err, data) ->
+              msg.reply "Created DDx board: #{board.shortUrl}"
+              msg.topic "[#{board.shortUrl}] #{problemDesc}"
+
 
 createCard = (msg, list_name, cardName) ->
   msg.reply "Sure thing boss. I'll create that card for you."
@@ -73,15 +132,9 @@ module.exports = (robot) ->
   robot.respond /ddx start (.+)/i, (msg) ->
     console.log msg
     ensureConfig msg.send
-    problem_desc = msg.match[1]
-
-    if problem_desc.length == 0
-      msg.reply "You must give a description of the problem you're diagnosing"
-      return
-
+    problemDesc = msg.match[1]
     return unless ensureConfig()
-
-    startBoard msg, problem_desc
+    startBoard msg, problemDesc
 
   robot.respond /trello list ["'](.+)["']/i, (msg) ->
     showCards msg, msg.match[1]
