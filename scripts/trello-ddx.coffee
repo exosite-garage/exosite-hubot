@@ -285,6 +285,11 @@ labelAndDrop = (msg, shortName, reason, listName, labelName, successCb) ->
           console.log "Error labeling card: #{err}"
           msg.reply "Error labeling card: #{err}"
 
+        if reason
+          trello.post "/1/cards/#{cardToChange.id}/actions/comments", {
+            text: "#{msg.message.user.name} closed this card because #{reason}"
+          }, (err, data) ->
+
         # 4. Call success callback
         return successCb cardToChange
 
@@ -331,18 +336,12 @@ module.exports = (robot) ->
   robot.hear /ddx fi.*? ([a-z0-9]+)/i, (msg) ->
     finishTest msg, msg.match[1]
 
-  robot.hear /trello move (\w+) ["'](.+)["']/i, (msg) ->
-    moveCard msg, msg.match[1], msg.match[2]
-
-  robot.hear /trello list lists/i, (msg) ->
-    msg.reply "Here are all the lists on your board."
-    Object.keys(lists).forEach (key) ->
-      msg.send " * " + key
-
-  robot.hear /trello help/i, (msg) ->
-    msg.reply "Here are all the commands for me."
-    msg.send " *  trello new \"<ListName>\" <TaskName>"
-    msg.send " *  trello list \"<ListName>\""
-    msg.send " *  shows * [<card.shortLink>] <card.name> - <card.shortUrl>"
-    msg.send " *  trello move <card.shortlink> \"<ListName>\""
-    msg.send " *  trello list lists"
+  # 'ddx help': print a usage message
+  robot.hear /ddx help/i, (msg) ->
+    msg.reply "Here are all the commands for DDx."
+    msg.send " *  ddx start <ProblemDescription>"
+    msg.send " *  ddx symptom <SymptomDescription>"
+    msg.send " *  ddx hypo <HypothesisDescription>"
+    msg.send " *  ddx test <TestDescription>"
+    msg.send " *  ddx falsify <HypothesisShortname>"
+    msg.send " *  ddx finish <TestShortname>"
