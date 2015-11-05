@@ -12,7 +12,6 @@
 #
 # Commands:
 #   hubot ddx start <problem description> - Start a new DDx board (and update room topic)
-#   hubot ddx link - Echo a link to the actie DDx board
 #   hubot ddx symptom <description> - Create a new DDx symptom
 #   hubot ddx hypo <description> - Create a new DDx hypothesis
 #   hubot ddx test <description> - Create a new DDx test
@@ -43,6 +42,12 @@ ensureConfig = (out) ->
 # `msg` should be a Response object (as passed to a robot.respond() callback)
 brainKey = (msg) ->
   return "ddx_#{msg.envelope.room}"
+
+# makeShortname returns a shortname with the given prefix and the given index
+makeShortname = (prefix, ind) ->
+  if ind < 10
+    return "#{prefix}0#{ind}"
+  return "#{prefix}#{ind}"
 
 # startBoard creates a new DDx board and links to it in the chatroom topic
 startBoard = (msg, problemDesc) ->
@@ -106,31 +111,128 @@ startBoard = (msg, problemDesc) ->
         createFailureCb = (err, data) ->
           console.log "Error creating list: #{err}"
           msg.reply "Error creating list: #{err}"
+        ddxLists = {}
         createList board.id, "Symptoms", "bottom", createFailureCb, (err, data) ->
+          ddxLists["Symptoms"] = {id: data.id, lastShortnameIndex: -1}
           createList board.id, "Hypotheses", "bottom", createFailureCb, (err, data) ->
+            ddxLists["Hypotheses"] = {id: data.id, lastShortnameIndex: -1}
             createList board.id, "Tests", "bottom", createFailureCb, (err, data) ->
+              ddxLists["Tests"] = {id: data.id, lastShortnameIndex: -1}
               # 6. Write board ID and list IDs to brain
-              brainEntry = {}
-              brainEntry[brainKey(msg)] = {
+              #
+              # Brain entry has a key specific to the current room, and a value as follows:
+              #
+              # {
+              #   boardId: <board ID>,
+              #   lists: {
+              #     Symptoms: {
+              #       id: <symptom list ID>,
+              #       lastShortnameIndex: <integer index of the most recent shortname>
+              #     },
+              #     Hypotheses: {
+              #       id: <hypothesis list ID>,
+              #       lastShortnameIndex: <integer index of the most recent shortname>
+              #     },
+              #     Tests: {
+              #       id: <test list ID>,
+              #       lastShortnameIndex: <integer index of the most recent shortname>
+              #     }
+              #   }
+              # }
+              brainEntry = {
                 boardId: board.id,
-                listIds: list.id for list in lists
+                lists: ddxLists
               }
               msg.robot.brain.set brainKey(msg), brainEntry
               msg.robot.brain.save
-              console.log "herp shmerp: " + JSON.stringify(msg.robot.brain.get(brainKey(msg)))
 
               # 7. Report success
               msg.reply "Created DDx board: #{board.shortUrl}"
               msg.topic "[#{board.shortUrl}] #{problemDesc}"
 
-
-createCard = (msg, list_name, cardName) ->
-  msg.reply "Sure thing boss. I'll create that card for you."
+# addSymptom creates a symptom on the active DDx board
+addSymptom = (msg, sympDesc) ->
   ensureConfig msg.send
-  id = lists[list_name.toLowerCase()].id
-  trello.post "/1/cards", {name: cardName, idList: id}, (err, data) ->
-    msg.reply "There was an error creating the card" if err
-    msg.reply "OK, I created that card for you. You can see it here: #{data.url}" unless err
+  brainEntry = msg.robot.brain.get(brainKey msg)
+  list = brainEntry.lists.Symptoms
+  if not list or not list.id
+    msg.reply "Error: No 'Symptoms' list defined for the Trello board"
+
+  brainEntry.lists.Symptoms.lastShortnameIndex += 1
+  shortnameIndex = brainEntry.lists.Symptoms.lastShortnameIndex
+  shortname = makeShortname "sy", shortnameIndex
+  cardName = "[#{shortname}] #{sympDesc}"
+  trello.post "/1/lists/#{list.id}/cards", {
+    name: cardName,
+    idList: list.id
+  }, (err, data) ->
+    if err
+      console.log "Error creating the symptom '#{sympDesc}': #{err}"
+      msg.reply "Error creating the symptom '#{sympDesc}': #{err}"
+      return
+
+    # Save to brain
+    msg.robot.brain.set brainKey(msg), brainEntry
+    msg.robot.brain.save
+
+    # Report success
+    msg.send "Created Symptom: #{cardName}"
+
+# addHypo creates a hypothesis on the active DDx board
+addHypo = (msg, hypoDesc) ->
+  ensureConfig msg.send
+  brainEntry = msg.robot.brain.get(brainKey msg)
+  list = brainEntry.lists.Hypotheses
+  if not list or not list.id
+    msg.reply "Error: No 'Hypotheses' list defined for the Trello board"
+
+  brainEntry.lists.Hypotheses.lastShortnameIndex += 1
+  shortnameIndex = brainEntry.lists.Hypotheses.lastShortnameIndex
+  shortname = makeShortname "hy", shortnameIndex
+  cardName = "[#{shortname}] #{hypoDesc}"
+  trello.post "/1/lists/#{list.id}/cards", {
+    name: cardName,
+    idList: list.id
+  }, (err, data) ->
+    if err
+      console.log "Error creating the hypothesis '#{hypoDesc}': #{err}"
+      msg.reply "Error creating the hypothesis '#{hypoDesc}': #{err}"
+      return
+
+    # Save to brain
+    msg.robot.brain.set brainKey(msg), brainEntry
+    msg.robot.brain.save
+
+    # Report success
+    msg.send "Created Hypothesis: #{cardName}"
+
+# addTest creates a test on the active DDx board
+addTest = (msg, testDesc) ->
+  ensureConfig msg.send
+  brainEntry = msg.robot.brain.get(brainKey msg)
+  list = brainEntry.lists.Tests
+  if not list or not list.id
+    msg.reply "Error: No 'Tests' list defined for the Trello board"
+
+  brainEntry.lists.Tests.lastShortnameIndex += 1
+  shortnameIndex = brainEntry.lists.Tests.lastShortnameIndex
+  shortname = makeShortname "te", shortnameIndex
+  cardName = "[#{shortname}] #{testDesc}"
+  trello.post "/1/lists/#{list.id}/cards", {
+    name: cardName,
+    idList: list.id
+  }, (err, data) ->
+    if err
+      console.log "Error creating the test '#{testDesc}': #{err}"
+      msg.reply "Error creating the test '#{testDesc}': #{err}"
+      return
+
+    # Save to brain
+    msg.robot.brain.set brainKey(msg), brainEntry
+    msg.robot.brain.save
+
+    # Report success
+    msg.send "Created Test: #{cardName}"
 
 moveCard = (msg, card_id, list_name) ->
   ensureConfig msg.send
@@ -145,14 +247,21 @@ module.exports = (robot) ->
   # fetch our board data when the script is loaded
   ensureConfig console.log
 
-  robot.respond /ddx start (.+)/i, (msg) ->
+  # Regexes match any unambiguous prefix of a command (e.g. "start" can be shortened
+  # to "st" but not "s"
+  robot.respond /ddx st.*? (.+)/i, (msg) ->
     ensureConfig msg.send
-    problemDesc = msg.match[1]
     return unless ensureConfig()
-    startBoard msg, problemDesc
+    startBoard msg, msg.match[1]
 
-  robot.respond /trello list ["'](.+)["']/i, (msg) ->
-    showCards msg, msg.match[1]
+  robot.respond /ddx sy.*? (.+)/i, (msg) ->
+    addSymptom msg, msg.match[1]
+
+  robot.respond /ddx hy.*? (.+)/i, (msg) ->
+    addHypo msg, msg.match[1]
+
+  robot.respond /ddx t.*? (.+)/i, (msg) ->
+    addTest msg, msg.match[1]
 
   robot.respond /trello move (\w+) ["'](.+)["']/i, (msg) ->
     moveCard msg, msg.match[1], msg.match[2]
