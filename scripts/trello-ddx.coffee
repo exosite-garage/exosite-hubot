@@ -15,7 +15,7 @@
 #   ddx symptom <description> - Create a new DDx symptom
 #   ddx hypo <description> - Create a new DDx hypothesis
 #   ddx test <description> - Create a new DDx test
-#   ddx falsify <hypo_id> - Falsify a DDx hypothesis
+#   ddx falsify <hypo_id> [because <reason>] - Falsify a DDx hypothesis
 #   ddx finish <test_id> - Mark a DDx test finished
 #
 # Author:
@@ -234,14 +234,69 @@ addTest = (msg, testDesc) ->
     # Report success
     msg.send "Created Test: #{cardName}"
 
-moveCard = (msg, card_id, list_name) ->
+# labelAndDrop labels a card and moves it down the list until it hits other cards
+# with the same label. This is the behavior when falsifying hypotheses and finishing
+# tests.
+labelAndDrop = (msg, shortName, reason, listName, labelName, successCb) ->
   ensureConfig msg.send
-  id = lists[list_name.toLowerCase()].id
-  msg.reply "I couldn't find a list named: #{list_name}." unless id
-  if id
-    trello.put "/1/cards/#{card_id}/idList", {value: id}, (err, data) ->
-      msg.reply "Sorry boss, I couldn't move that card after all." if err
-      msg.reply "Yep, ok, I moved that card to #{list_name}." unless err
+  brainEntry = msg.robot.brain.get(brainKey msg)
+  list = brainEntry.lists[listName]
+  if not list or not list.id
+    msg.reply "Error: No '#{listName}' list defined for the Trello board"
+
+  # 1. Retrieve the relevant card
+  trello.get "/1/lists/#{list.id}/cards", {}, (err, data) ->
+    if err
+      console.log "Error retrieving cards: #{err}"
+      msg.reply "Error retrieving cards: #{err}"
+      return
+    allCards = data
+    matchingCards = (card for card in allCards when card["name"].match ///^\[#{shortName}\]///)
+    if matchingCards.length < 1
+      msg.reply "Error: found no card for '#{shortName}'"
+      return
+    if matchingCards.length > 1
+      msg.reply "Error: found more than one card for '#{shortName}'"
+      return
+    cardToChange = matchingCards[0]
+
+    # 2. Move the card down to where the labeled cards are
+    destPos = null
+    for card in allCards
+      for label in card.labels
+        if label.name == labelName
+          destPos = card.pos - 1
+          break
+      break if destPos
+    destPos = "bottom" if not destPos
+
+    trello.put "/1/cards/#{cardToChange.id}/pos", {value: destPos}, (err, data) ->
+      if err
+        console.log "Error moving card: #{err}"
+        msg.reply "Error moving card: #{err}"
+        return
+
+      # 3. Label the card
+      trello.post "/1/cards/#{cardToChange.id}/labels", {
+        color: 'blue',
+        name: labelName
+      }, (err, data) ->
+        if err
+          console.log "Error labeling card: #{err}"
+          msg.reply "Error labeling card: #{err}"
+
+        # 4. Call success callback
+        return successCb cardToChange
+
+# falsifyHypo falsifies a hypothesis, optionally adding a reason as a comment
+falsifyHypo = (msg, hypoId, reason) ->
+  labelAndDrop msg, hypoId, reason, "Hypotheses", "falsified", (card) ->
+    msg.send "Falsified Hypothesis: #{card.name}"
+
+# finishTest finishes a test
+finishTest = (msg, testId) ->
+  labelAndDrop msg, testId, null, "Tests", "finished", (card) ->
+    msg.send "Finished Test: #{card.name}"
 
 module.exports = (robot) ->
   # fetch our board data when the script is loaded
@@ -249,19 +304,32 @@ module.exports = (robot) ->
 
   # Regexes match any unambiguous prefix of a command (e.g. "start" can be shortened
   # to "st" but not "s"
+  #
+  # 'ddx start': start a new DDX board
   robot.hear /ddx st.*? (.+)/i, (msg) ->
     ensureConfig msg.send
     return unless ensureConfig()
     startBoard msg, msg.match[1]
 
+  # 'ddx symptom': add a symptom
   robot.hear /ddx sy.*? (.+)/i, (msg) ->
     addSymptom msg, msg.match[1]
 
+  # 'ddx hypothesis': add a hypothesis
   robot.hear /ddx hy.*? (.+)/i, (msg) ->
     addHypo msg, msg.match[1]
 
+  # 'ddx test': add a test
   robot.hear /ddx t.*? (.+)/i, (msg) ->
     addTest msg, msg.match[1]
+
+  # 'ddx falsify': falsify a hypothesis
+  robot.hear /ddx fa.*? ([a-z0-9]+)(?: (?:because|cause|cuz|bc|b\/c) (.*))?/i, (msg) ->
+    falsifyHypo msg, msg.match[1], msg.match[2]
+
+  # 'ddx finish': finish a test
+  robot.hear /ddx fi.*? ([a-z0-9]+)/i, (msg) ->
+    finishTest msg, msg.match[1]
 
   robot.hear /trello move (\w+) ["'](.+)["']/i, (msg) ->
     moveCard msg, msg.match[1], msg.match[2]
@@ -278,4 +346,3 @@ module.exports = (robot) ->
     msg.send " *  shows * [<card.shortLink>] <card.name> - <card.shortUrl>"
     msg.send " *  trello move <card.shortlink> \"<ListName>\""
     msg.send " *  trello list lists"
-
