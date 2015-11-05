@@ -11,12 +11,12 @@
 #   HUBOT_DDX_TOKEN - Trello API token
 #
 # Commands:
-#   hubot ddx start <problem description> - Start a new DDx board (and update room topic)
-#   hubot ddx symptom <description> - Create a new DDx symptom
-#   hubot ddx hypo <description> - Create a new DDx hypothesis
-#   hubot ddx test <description> - Create a new DDx test
-#   hubot ddx falsify <hypo_id> - Falsify a DDx hypothesis
-#   hubot ddx finish <test_id> - Mark a DDx test finished
+#   ddx start <problem description> - Start a new DDx board (and update room topic)
+#   ddx symptom <description> - Create a new DDx symptom
+#   ddx hypo <description> - Create a new DDx hypothesis
+#   ddx test <description> - Create a new DDx test
+#   ddx falsify <hypo_id> - Falsify a DDx hypothesis
+#   ddx finish <test_id> - Mark a DDx test finished
 #
 # Author:
 #   Dan Slimmon <dan.slimmon@gmail.com>
@@ -39,7 +39,7 @@ ensureConfig = (out) ->
 
 # brainKey returns a key under which to store brain data for this session
 #
-# `msg` should be a Response object (as passed to a robot.respond() callback)
+# `msg` should be a Response object (as passed to a robot.hear() callback)
 brainKey = (msg) ->
   return "ddx_#{msg.envelope.room}"
 
@@ -249,29 +249,29 @@ module.exports = (robot) ->
 
   # Regexes match any unambiguous prefix of a command (e.g. "start" can be shortened
   # to "st" but not "s"
-  robot.respond /ddx st.*? (.+)/i, (msg) ->
+  robot.hear /ddx st.*? (.+)/i, (msg) ->
     ensureConfig msg.send
     return unless ensureConfig()
     startBoard msg, msg.match[1]
 
-  robot.respond /ddx sy.*? (.+)/i, (msg) ->
+  robot.hear /ddx sy.*? (.+)/i, (msg) ->
     addSymptom msg, msg.match[1]
 
-  robot.respond /ddx hy.*? (.+)/i, (msg) ->
+  robot.hear /ddx hy.*? (.+)/i, (msg) ->
     addHypo msg, msg.match[1]
 
-  robot.respond /ddx t.*? (.+)/i, (msg) ->
+  robot.hear /ddx t.*? (.+)/i, (msg) ->
     addTest msg, msg.match[1]
 
-  robot.respond /trello move (\w+) ["'](.+)["']/i, (msg) ->
+  robot.hear /trello move (\w+) ["'](.+)["']/i, (msg) ->
     moveCard msg, msg.match[1], msg.match[2]
 
-  robot.respond /trello list lists/i, (msg) ->
+  robot.hear /trello list lists/i, (msg) ->
     msg.reply "Here are all the lists on your board."
     Object.keys(lists).forEach (key) ->
       msg.send " * " + key
 
-  robot.respond /trello help/i, (msg) ->
+  robot.hear /trello help/i, (msg) ->
     msg.reply "Here are all the commands for me."
     msg.send " *  trello new \"<ListName>\" <TaskName>"
     msg.send " *  trello list \"<ListName>\""
