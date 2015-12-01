@@ -47,8 +47,8 @@ module.exports = (robot) ->
     # let's get our local vars in place
     [dummy, name, operator, reason] = msg.match
     from = msg.message.user.name.toLowerCase()
-    console.log "x-alpha: #{msg.message.user}"
-    if from == "martin"
+    console.log "x-alpha: #{msg.message.user.id}"
+    if msg.message.user.id == 1170415
       msg.reply "No, Martin. You've lost your privileges."
       return
     room = msg.message.room
