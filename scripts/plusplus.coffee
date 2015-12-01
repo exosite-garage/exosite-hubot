@@ -47,8 +47,8 @@ module.exports = (robot) ->
     # let's get our local vars in place
     [dummy, name, operator, reason] = msg.match
     from = msg.message.user.name.toLowerCase()
-    if from == "martin"
-      msg.reply "No, Martin. You've lost your privileges."
+    if from == "martin" or from == "ryanharris"
+      msg.reply "No. You've lost your privileges."
       return
     room = msg.message.room
 
