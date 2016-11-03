@@ -1,9 +1,25 @@
+# Description:
+#   Various Murano release automation
+#
+# Configuration:
+#   RELEASE_GRAPHITE_HOST - Hostname for Graphite
+#   RELEASE_GRAPHITE_PORT - Port for Graphite
+#
+# Commands:
+#   hubot release downtime start - Indicate that release-related downtime has begun
+#   hubot release downtime end - Indicate that release-related downtiem is over, and record the duration of that downtime as a Graphite metric
+#   hubot release downtime 0 - Indicate that the most recently scheduled release resulted in no downtime
+#   hubot release scheduled <HH:MM> - Indicate that a release is scheduled for the given time (UTC)
+#   hubot release done - Indicate that the most recently scheduled release is finished, and record the duration of that release as a Graphite metric
+#
+# Author:
+#   Dan Slimmon <dan.slimmon@gmail.com>
 net = require('net')
 https = require('https')
 
 os_host = process.env.RELEASE_OPENSHIFT_HOST
-os_port = 1*process.env.RELEASE_OPENSHIFT_PORT
 os_token = process.env.RELEASE_OPENSHIFT_TOKEN
+os_port = 1*process.env.RELEASE_OPENSHIFT_PORT
 graphite_host = process.env.RELEASE_GRAPHITE_HOST
 graphite_port = 1*process.env.RELEASE_GRAPHITE_PORT
 
@@ -52,6 +68,32 @@ module.exports = (robot) ->
     , (e) ->
       res.send "Error tagging image #{imageId}: #{e}"
 
+  # release scheduled
+  #
+  # Marks the time at which an upcoming Murano release is scheduled to take place
+  #
+  # It assumes that the time given is on the same (UTC) day as the current time.
+  robot.respond /release scheduled ([0-9]{2}):([0-9]{2})$/i, (res) ->
+    d = new Date
+    d.setHours(1*res.match[1])
+    d.setMinutes(1*res.match[2])
+    d.setSeconds(0)
+    d.setMilliseconds(0)
+    isoDate = d.toISOString()
+    robot.brain.set "releaseScheduled", isoDate
+    res.send "Release scheduled for #{isoDate}"
+
+  # release done
+  #
+  # Marks the end of a Murano release. Writes the duration of the release, in
+  # seconds, to Graphite.
+  robot.respond /release done$/i, (res) ->
+    isoDate = robot.brain.get "releaseScheduled"
+    d = Date.parse(isoDate)
+    releaseSecs = ((new Date) - d) / 1000
+    writeGraphite "release.duration", releaseSecs, d
+    res.send "Total release duration: #{releaseSecs} seconds"
+
   # release downtime start
   #
   # Marks the beginning of downtime caused by a Murano release.
@@ -70,3 +112,12 @@ module.exports = (robot) ->
     downtimeSecs = ((new Date) - d) / 1000
     writeGraphite "release.downtime", downtimeSecs, new Date
     res.send "Downtime recorded: #{downtimeSecs} seconds"
+
+  # release downtime 0
+  #
+  # Indicates that no downtime occurred during a Murano release
+  robot.respond /release downtime 0$/i, (res) ->
+    isoDate = robot.brain.get "releaseScheduled"
+    d = Date.parse(isoDate)
+    writeGraphite "release.downtime", 0, d
+    res.send "Nice! 0 seconds of downtime recorded"
