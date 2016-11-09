@@ -16,12 +16,19 @@
 #   Dan Slimmon <dan.slimmon@gmail.com>
 net = require('net')
 https = require('https')
+querystring = require('querystring')
 
 os_host = process.env.RELEASE_OPENSHIFT_HOST
 os_token = process.env.RELEASE_OPENSHIFT_TOKEN
 os_port = 1*process.env.RELEASE_OPENSHIFT_PORT
+
 graphite_host = process.env.RELEASE_GRAPHITE_HOST
 graphite_port = 1*process.env.RELEASE_GRAPHITE_PORT
+
+graphite_render_username = process.env.RELEASE_GRAPHITE_USERNAME
+graphite_render_password = process.env.RELEASE_GRAPHITE_PASSWORD
+graphite_render_host = process.env.RELEASE_GRAPHITE_RENDER_HOST
+graphite_render_port = process.env.RELEASE_GRAPHITE_RENDER_PORT
 
 
 # tagImage() adds the given tag to the Docker image with the given ID.
@@ -56,6 +63,58 @@ writeGraphite = (metricName, value, timestamp) ->
     client.write "#{metricName} #{value} #{timestampInt}\n"
   client.on "drain", () ->
     client.close
+
+# readGraphite() returns all data points for `target` within `interval` of
+# the current time.
+readGraphite = (target, interval, successCb, failureCb) ->
+  auth_string = new Buffer("#{graphite_render_username}:#{graphite_render_password}").toString("base64")
+  query_string = querystring.stringify({
+    format: "json",
+    target: target,
+    from: "-#{interval}"
+  })
+  options = {
+    host: graphite_render_host,
+    port: graphite_render_port,
+    method: "GET",
+    path: "/render?#{query_string}",
+    headers: {
+      "Authorization": "Basic #{auth_string}",
+      "Accept": "application/json"
+    }
+  }
+
+  respBody = ""
+  return https.request options, (resp) ->
+    resp.on "data", (chunk) ->
+      respBody = respBody + chunk
+    resp.on "end", () ->
+      if resp.statusCode != 200
+        return failureCb new Error "Got #{resp.statusCode} response from API: #{respBody}"
+      try
+        bodyObj = JSON.parse respBody
+        datapoints = bodyObj[0]["datapoints"]
+        return successCb datapoints
+      catch e
+        return failureCb new Error "Error parsing Graphite response: #{e}"
+  .on "error", (e) ->
+    return failureCb e
+  .end()
+
+# timeSinceLastRelease() calculates the number of seconds since the most recent
+# release, given the current date.
+timeSinceLastRelease = (currentDate, successCb, failureCb) ->
+  return readGraphite "release.duration", "90day", (datapoints) ->
+    nonNullDatapoints = datapoints.filter (dp) ->
+      dp[0] != null
+    if nonNullDatapoints.length == 0
+      return failureCb new Error "No previous release found in Graphite"
+    lastDatapoint = nonNullDatapoints.pop()
+    lastTimestamp = lastDatapoint[1]
+    lastDate = new Date(lastTimestamp*1000)
+    return successCb((currentDate - lastDate)/1000)
+  , (e) ->
+    return failureCb e
 
 module.exports = (robot) ->
   # qaready <image-id>
@@ -92,7 +151,12 @@ module.exports = (robot) ->
     d = Date.parse(isoDate)
     releaseSecs = ((new Date) - d) / 1000
     writeGraphite "release.duration", releaseSecs, d
-    res.send "Total release duration: #{releaseSecs} seconds"
+    return timeSinceLastRelease(d, (since) ->
+      writeGraphite "release.since", since, d
+      res.send "Total release duration: #{releaseSecs} seconds\n\nTime since last release: #{since/3600} hours"
+    , (e) ->
+      res.send "Error retrieving time since last release from Graphite: #{e}"
+    )
 
   # release downtime start
   #
